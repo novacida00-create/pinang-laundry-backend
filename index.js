@@ -6,9 +6,10 @@ const midtransClient = require("midtrans-client");
 const nodemailer = require("nodemailer");
 const mysql = require("mysql2/promise");
 
+// inisialisasi express
 const app = express();
 
-// MySQL connection pool
+// MySQL connection pool - bikin koneksi ke database pake pool biar ga timeout
 const db = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '3306'),
@@ -22,7 +23,7 @@ const db = mysql.createPool({
     : undefined,
 });
 
-// Nodemailer transporter
+// setup nodemailer biar bisa kirim email pake SMTP
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT || "587"),
@@ -36,10 +37,11 @@ const transporter = nodemailer.createTransport({
 app.use(cors());
 app.use(express.json());
 
-// Serve built frontend
+// ini middleware dasar, cors biar frontend bisa akses API
+// serve file statis dari folder dist buat frontend
 app.use(express.static(path.join(__dirname, "..", "pinang-laundry-frontend", "dist")));
 
-// Snap API instance
+// Snap API instance - buat integrasi midtrans
 const snap = new midtransClient.Snap({
   isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
   serverKey: process.env.MIDTRANS_SERVER_KEY,
@@ -48,7 +50,9 @@ const snap = new midtransClient.Snap({
 
 // Create transaction & get Snap token
 app.post("/api/midtrans/transaction", async (req, res) => {
+  // buat transaksi midtrans buat pembayaran credit card / VA
   try {
+    // console.log("Midtrans req:", req.body); // debug
     const { order_id, gross_amount, customer_details } = req.body;
     if (!order_id || !gross_amount) {
       return res.status(400).json({ error: "order_id and gross_amount required" });
@@ -76,7 +80,7 @@ app.get("/api/midtrans/status/:order_id", async (req, res) => {
   }
 });
 
-// Webhook notification from Midtrans
+// Webhook notification from Midtrans - ini dipanggil otomatis sama midtrans kalo ada perubahan status
 app.post("/api/midtrans/notification", async (req, res) => {
   try {
     const notification = await snap.transaction.notification(req.body);
@@ -137,7 +141,9 @@ const core = new midtransClient.CoreApi({
 
 // Create QRIS transaction directly
 app.post("/api/midtrans/qris", async (req, res) => {
+  // ini buat bayar pake QRIS langsung dari midtrans
   try {
+    // console.log("QRIS request body:", req.body);
     const { order_id, gross_amount, customer_details } = req.body;
     if (!order_id || !gross_amount) {
       return res.status(400).json({ error: "order_id and gross_amount required" });
@@ -157,7 +163,7 @@ app.post("/api/midtrans/qris", async (req, res) => {
   }
 });
 
-// Email notification
+// Email notification - kirim email ke pelanggan pake nodemailer
 app.post("/api/send-email", async (req, res) => {
   try {
     const { to, subject, html } = req.body;
@@ -180,6 +186,7 @@ app.post("/api/send-email", async (req, res) => {
 });
 
 // ===================== LAYANAN =====================
+// CRUD buat data layanan laundry
 
 app.get("/api/layanan", async (req, res) => {
   try {
@@ -274,6 +281,7 @@ app.delete("/api/pelanggan/:id", async (req, res) => {
 });
 
 // ===================== KARYAWAN =====================
+// bagian CRUD karyawan sama login
 
 app.get("/api/karyawan", async (req, res) => {
   try {
@@ -322,6 +330,7 @@ app.delete("/api/karyawan/:id", async (req, res) => {
 });
 
 app.post("/api/karyawan/login", async (req, res) => {
+  // endpoint login karyawan, cek username dan password dari database
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -344,6 +353,7 @@ app.post("/api/karyawan/login", async (req, res) => {
 });
 
 // ===================== ORDERS =====================
+// ini bagian order/pesanan, paling sering dipake
 
 app.get("/api/orders", async (req, res) => {
   try {
@@ -431,6 +441,7 @@ app.delete("/api/laporan/:id", async (req, res) => {
 });
 
 // ===================== PENGATURAN =====================
+// pengaturan toko, mapping dari snake_case db ke camelCase frontend
 
 app.get("/api/pengaturan", async (req, res) => {
   try {
@@ -506,6 +517,7 @@ app.get("/api/customers", async (req, res) => {
 });
 
 app.post("/api/customers/register", async (req, res) => {
+  // registrasi pelanggan baru, cek dulu emailnya udah ada apa belum
   try {
     const { name, username, email, password, phone, address } = req.body;
     if (!name || !username || !email || !password) {
@@ -594,6 +606,7 @@ app.post("/api/testimonials", async (req, res) => {
 });
 
 // ===================== USERS =====================
+// users buat admin panel
 
 app.get("/api/users", async (req, res) => {
   try {
@@ -624,6 +637,7 @@ app.post("/api/users/login", async (req, res) => {
 });
 
 // SPA fallback - serve index.html for all non-API routes
+// ini penting biar react router bisa jalan, semua route non-api balik ke index.html
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api")) {
     return res.status(404).json({ error: "API endpoint not found" });
@@ -637,6 +651,7 @@ if (process.env.VERCEL !== "1") {
     console.log(`Server running on port ${PORT}`);
     console.log(`Frontend: http://localhost:${PORT}`);
     console.log(`Midtrans mode: ${process.env.MIDTRANS_IS_PRODUCTION === "true" ? "PRODUCTION" : "SANDBOX"}`);
+    // console.log("ENV vars:", process.env); // debugging, jangan di uncomment kalo production
   });
 }
 
