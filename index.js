@@ -14,9 +14,12 @@ const db = mysql.createPool({
   port: parseInt(process.env.DB_PORT || '3306'),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'pinang_laundry',
+  database: process.env.DB_NAME || 'defaultdb',
   waitForConnections: true,
   connectionLimit: 10,
+  ssl: process.env.DB_HOST && process.env.DB_HOST.includes('aivencloud.com')
+    ? { rejectUnauthorized: false }
+    : undefined,
 });
 
 // Nodemailer transporter
@@ -313,6 +316,28 @@ app.delete("/api/karyawan/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM karyawan WHERE id = ?", [req.params.id]);
     res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/karyawan/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "username and password required" });
+    }
+    const [rows] = await db.query(
+      "SELECT id, name, role, phone, email, status FROM karyawan WHERE name = ? AND password = ?",
+      [username, password]
+    );
+    if (rows.length === 0) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+    if (rows[0].status !== 'Aktif') {
+      return res.status(403).json({ error: "Akun tidak aktif" });
+    }
+    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
