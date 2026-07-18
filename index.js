@@ -17,7 +17,7 @@ const db = mysql.createPool({
   database: process.env.DB_NAME || 'defaultdb',
   waitForConnections: true,
   connectionLimit: 10,
-  ssl: process.env.DB_HOST && process.env.DB_HOST.includes('aivencloud.com')
+  ssl: process.env.DB_HOST && (process.env.DB_HOST.includes('aivencloud.com') || process.env.DB_HOST.includes('tidbcloud.com'))
     ? { rejectUnauthorized: false }
     : undefined,
 });
