@@ -643,7 +643,7 @@ app.post("/api/chatbot", async (req, res) => {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: "message required" });
 
-    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    const OPENAI_KEY = (process.env.OPENAI_API_KEY || "").trim();
     if (!OPENAI_KEY) return res.status(500).json({ error: "OpenAI API key belum dikonfigurasi" });
 
     // ambil data layanan dari database buat konteks chatbot
