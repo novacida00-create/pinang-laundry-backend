@@ -41,6 +41,16 @@ app.use(express.json());
 // serve file statis dari folder dist buat frontend
 app.use(express.static(path.join(__dirname, "..", "pinang-laundry-frontend", "dist")));
 
+// tambahin kolom reminder_sent kalau belum ada (migration)
+(async () => {
+  try {
+    await db.query("ALTER TABLE orders ADD COLUMN reminder_sent TINYINT(1) DEFAULT 0");
+    console.log("Kolom reminder_sent berhasil ditambahkan");
+  } catch {
+    // kolom sudah ada, ignore error
+  }
+})();
+
 // Snap API instance - buat integrasi midtrans
 const snap = new midtransClient.Snap({
   isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
@@ -631,6 +641,75 @@ app.post("/api/users/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== AUTO REMINDER =====================
+// fitur auto reminder: kirim WA otomatis ke pelanggan yg pesanannya sudah selesai tapi belum diambil
+
+app.post("/api/auto-reminder", async (req, res) => {
+  try {
+    const [settingsRows] = await db.query("SELECT * FROM pengaturan WHERE id = 1");
+    const settings = settingsRows[0] || {};
+    if (!settings.auto_reminder) {
+      return res.json({ message: "Auto reminder belum diaktifkan", sent: 0 });
+    }
+    if (!settings.wa_notif || !settings.fonnte_token) {
+      return res.json({ message: "WhatsApp notification belum dikonfigurasi", sent: 0 });
+    }
+
+    const [orders] = await db.query(
+      "SELECT * FROM orders WHERE status = 'Selesai' AND delivery_mode = 'mandiri' AND (reminder_sent IS NULL OR reminder_sent = 0) ORDER BY updated_at DESC LIMIT 20"
+    );
+
+    if (orders.length === 0) {
+      return res.json({ message: "Tidak ada pesanan yang perlu di-reminder", sent: 0 });
+    }
+
+    let sentCount = 0;
+    const results = [];
+
+    for (const order of orders) {
+      const phone = (order.phone || "").replace(/[^0-9]/g, "");
+      if (!phone) continue;
+
+      const message = `Halo ${order.customer_name}! 👋\n\nPesanan Anda dengan kode ${order.order_code} sudah SELESAI dan siap diambil di Pinang Laundry.\n\nLayanan: ${order.service_name}\nTotal: Rp ${(order.total || 0).toLocaleString("id-ID")}\n\nSilakan ambil kapan saja selama jam operasional (07:00 - 21:00). Terima kasih! 🧺`;
+
+      try {
+        const formData = new URLSearchParams();
+        formData.append("target", phone);
+        formData.append("message", message);
+        formData.append("delay", "1-3");
+        formData.append("countryCode", "62");
+        formData.append("connectOnly", "false");
+
+        const waRes = await fetch("https://api.fonnte.com/send", {
+          method: "POST",
+          headers: {
+            "Authorization": settings.fonnte_token,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: formData
+        });
+
+        const waResult = await waRes.json();
+        const ok = waResult.status !== false && waResult.Status !== false;
+
+        if (ok) {
+          await db.query("UPDATE orders SET reminder_sent = 1 WHERE id = ?", [order.id]);
+          sentCount++;
+          results.push({ order_code: order.order_code, status: "sent" });
+        } else {
+          results.push({ order_code: order.order_code, status: "failed", error: waResult.reason });
+        }
+      } catch (e) {
+        results.push({ order_code: order.order_code, status: "error", error: e.message });
+      }
+    }
+
+    res.json({ message: `Berhasil mengirim ${sentCount} reminder`, sent: sentCount, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
