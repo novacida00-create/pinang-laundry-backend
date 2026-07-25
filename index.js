@@ -636,15 +636,15 @@ app.post("/api/users/login", async (req, res) => {
   }
 });
 
-// ===================== AI CHATBOT (Google Gemini) =====================
-// endpoint buat chatbot pakai Google Gemini API (gratis)
+// ===================== AI CHATBOT (Groq - Llama 3) =====================
+// endpoint buat chatbot pakai Groq API (gratis, model Llama 3)
 app.post("/api/chatbot", async (req, res) => {
   try {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: "message required" });
 
-    const GEMINI_KEY = (process.env.GEMINI_API_KEY || "").trim();
-    if (!GEMINI_KEY) return res.status(500).json({ error: "Gemini API key belum dikonfigurasi" });
+    const GROQ_KEY = (process.env.GROQ_API_KEY || "").trim();
+    if (!GROQ_KEY) return res.status(500).json({ error: "Groq API key belum dikonfigurasi" });
 
     // ambil data layanan dari database buat konteks chatbot
     const [layanan] = await db.query("SELECT name, jenis, harga, waktu FROM layanan WHERE status = 'Aktif'");
@@ -672,23 +672,27 @@ ATURAN:
 - Jika ditanya harga, sebutkan dari daftar layanan di atas
 - Format rupiah: Rp X.XXX`;
 
-    const apiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ parts: [{ text: message }] }],
-          generationConfig: { maxOutputTokens: 256, temperature: 0.7 },
-        }),
-      }
-    );
+    const apiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ],
+        max_tokens: 256,
+        temperature: 0.7,
+      }),
+    });
 
     const data = await apiRes.json();
     if (data.error) return res.status(500).json({ error: data.error.message });
 
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, saya tidak bisa memproses pertanyaan Anda.";
+    const reply = data.choices?.[0]?.message?.content || "Maaf, saya tidak bisa memproses pertanyaan Anda.";
     res.json({ reply });
   } catch (err) {
     console.error("Chatbot error:", err.message);
