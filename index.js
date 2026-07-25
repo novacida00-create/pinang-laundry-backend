@@ -636,6 +636,70 @@ app.post("/api/users/login", async (req, res) => {
   }
 });
 
+// ===================== AI CHATBOT (OpenAI) =====================
+// endpoint buat chatbot pakai OpenAI API
+app.post("/api/chatbot", async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: "message required" });
+
+    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_KEY) return res.status(500).json({ error: "OpenAI API key belum dikonfigurasi" });
+
+    // ambil data layanan dari database buat konteks chatbot
+    const [layanan] = await db.query("SELECT name, jenis, harga, waktu FROM layanan WHERE status = 'Aktif'");
+    const [pengaturan] = await db.query("SELECT nama_toko, alamat, telepon, jam_buka, jam_tutup FROM pengaturan WHERE id = 1");
+    const toko = pengaturan[0] || {};
+
+    const layananList = layanan.map(l => `- ${l.name} (${l.jenis}): Rp ${l.harga}/${l.jenis === 'Satuan' ? 'pcs' : 'kg'}, Estimasi: ${l.waktu}`).join("\n");
+
+    const systemPrompt = `Kamu adalah asisten chatbot untuk ${toko.nama_toko || 'Pinang Laundry'}.
+Kamu membantu pelanggan menjawab pertanyaan tentang layanan laundry.
+
+INFORMASI TOKO:
+- Nama: ${toko.nama_toko || 'Pinang Laundry'}
+- Alamat: ${toko.alamat || '-'}
+- Telepon: ${toko.telepon || '-'}
+- Jam Buka: ${toko.jam_buka || '07:00'} - ${toko.jam_tutup || '21:00'}
+
+DAFTAR LAYANAN AKTIF:
+${layananList}
+
+ATURAN:
+- Jawab dengan singkat, ramah, dan informatif (maks 3-4 baris)
+- Gunakan bahasa Indonesia yang sopan
+- Jika ditanya hal di luar konteks laundry, arahkan kembali ke layanan laundry
+- Jika ditanya harga, sebutkan dari daftar layanan di atas
+- Format rupiah: Rp X.XXX`;
+
+    const apiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ],
+        max_tokens: 256,
+        temperature: 0.7,
+      }),
+    });
+
+    const data = await apiRes.json();
+    if (data.error) return res.status(500).json({ error: data.error.message });
+
+    const reply = data.choices?.[0]?.message?.content || "Maaf, saya tidak bisa memproses pertanyaan Anda.";
+    res.json({ reply });
+  } catch (err) {
+    console.error("Chatbot error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // SPA fallback - serve index.html for all non-API routes
 // ini penting biar react router bisa jalan, semua route non-api balik ke index.html
 app.get("*", (req, res) => {
