@@ -376,6 +376,9 @@ app.get("/api/orders", async (req, res) => {
 
 app.post("/api/orders", async (req, res) => {
   try {
+    if (req.body.weight && parseFloat(req.body.weight) > 20) {
+      return res.status(400).json({ error: "Jumlah maksimal adalah 20kg!" });
+    }
     const [result] = await db.query("INSERT INTO orders SET ?", req.body);
     const [rows] = await db.query("SELECT * FROM orders WHERE id = ?", [result.insertId]);
     res.json(rows[0]);
