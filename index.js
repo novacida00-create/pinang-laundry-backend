@@ -533,6 +533,10 @@ app.post("/api/customers/register", async (req, res) => {
     if (!name || !username || !email || !password) {
       return res.status(400).json({ error: "name, username, email, and password required" });
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Format email tidak valid! Contoh: nama@gmail.com" });
+    }
     const [existing] = await db.query("SELECT id FROM customers WHERE email = ?", [email]);
     if (existing.length > 0) {
       return res.status(409).json({ error: "Email already registered" });
